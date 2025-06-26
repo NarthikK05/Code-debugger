@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Voice Code Debugger</title>
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/default.min.css">
+    <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            background-color: #f9fafb;
+            color: #1f2937;
+            margin: 30px;
+            transition: background-color 0.3s, color 0.3s;
+            background-image: url('/static/debug-1024x646.jpg');
+            background-size: cover;
+            background-repeat: repeat;
+        }
+
+        body.dark {
+            background-color: #1f2937;
+            color: #f9fafb;
+            background-image: url('/static/debug-1024x646.jpg');
+        }
+
+        h1 {
+            color: #3b82f6;
+        }
+
+        button {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+
+        button:hover {
+            background-color: #2563eb;
+        }
+
+        textarea, select {
+            font-family: Consolas, monospace;
+            font-size: 15px;
+            background-color: #f3f4f6;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 10px;
+            color: #111827;
+        }
+
+        body.dark textarea, body.dark select {
+            background-color: #374151;
+            color: #f3f4f6;
+        }
+
+        pre {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px;
+            border-radius: 6px;
+            white-space: pre-wrap;
+            font-family: Consolas, monospace;
+            color: #f3f4f6;
+            font-size: 14px;
+            border-left: 5px solid #3b82f6;
+            position: relative;
+            width: fit-content;
+            max-width: 90%;
+        }
+
+        body.dark pre {
+            background-color: rgba(0, 0, 0, 0.4);
+            color: #f3f4f6;
+        }
+
+        #pasteResult {
+            margin-top: 20px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        #transcription {
+            width: 40%;
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 10px;
+            border-radius: 6px;
+            color: #f3f4f6;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🗣️ Speak or Paste Your Code</h1>
+
+    <div class="controls">
+        <button onclick="startListening()">🎤 Start Voice Input</button>
+        <button onclick="toggleDarkMode()">🌓 Toggle Dark Mode</button>
+        <select id="language">
+            <option value="python">Python</option>
+            <option value="java">Java</option>
+            <option value="c">C</option>
+            <option value="cpp">C++</option>
+            <option value="javascript">JavaScript</option>
+            <option value="html">HTML</option>
+            <option value="sql">SQL</option>
+        </select>
+    </div>
+
+    <p><strong>Spoken Code:</strong></p>
+    <pre id="transcription">🎙️ Waiting for voice input...</pre>
+
+    <hr>
+
+    <form id="pasteForm">
+        <textarea id="code_input" rows="10" cols="80" placeholder="Paste your code here..." required></textarea><br><br>
+        <button type="submit">🛠️ Debug Code</button>
+    </form>
+    <div id="pasteResult"></div>
+
+    <script>
+        function startListening() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert("❌ Speech Recognition not supported in this browser.");
+                return;
+            }
+
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+
+            recognition.onresult = function(event) {
+                const spokenCode = event.results[0][0].transcript;
+                document.getElementById("transcription").textContent = "🎙️ Recognized:\n" + spokenCode;
+
+                fetch("/transcribe", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text: spokenCode })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.fixed_code) {
+                        document.getElementById("transcription").textContent = "✅ Debugged Code:\n" + data.fixed_code;
+                    } else {
+                        document.getElementById("transcription").textContent = "❌ Error: " + data.error;
+                    }
+                });
+            };
+
+            recognition.onerror = function(event) {
+                alert("Speech recognition error: " + event.error);
+            };
+
+            recognition.start();
+        }
+
+        function toggleDarkMode() {
+            document.body.classList.toggle("dark");
+        }
+
+        document.getElementById("pasteForm").addEventListener("submit", function(e) {
+            e.preventDefault();
+            const code = document.getElementById("code_input").value;
+            const language = document.getElementById("language").value;
+
+            fetch("/transcribe", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: code, language })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.fixed_code) {
+                    document.getElementById("pasteResult").innerHTML = `
+                        <pre><code class="language-${language}" id="debuggedCode">✅ Debugged Code:\n\n${data.fixed_code}</code></pre>
+                        <button onclick="copyCode()">📋 Copy</button>
+                        <button onclick="downloadCode()">⬇️ Download</button>
+                    `;
+                    hljs.highlightAll();
+                } else {
+                    document.getElementById("pasteResult").textContent = "❌ Error: " + data.error;
+                }
+            });
+        });
+
+        function copyCode() {
+            const code = document.getElementById("debuggedCode").innerText;
+            navigator.clipboard.writeText(code).then(() => alert("✅ Code copied!"));
+        }
+
+        function downloadCode() {
+            const code = document.getElementById("debuggedCode").innerText;
+            const blob = new Blob([code], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "debugged_code.txt";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
